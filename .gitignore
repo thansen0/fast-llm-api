@@ -8,6 +8,7 @@
 # Build directories
 bin/
 build/
+logs/
 
 # Test output
 *.out
