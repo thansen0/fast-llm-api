@@ -24,7 +24,7 @@ func main() {
     defer cancel()
 
     req := &pb.LLMInit{
-        ApiKey: "your-api-key",
+        ApiKey: "b150b0f9-235e-4f87-91db-d2b45da98a68",
         Prompt: "What is the capital of France?",
     }
     res, err := client.PromptLLM(ctx, req)

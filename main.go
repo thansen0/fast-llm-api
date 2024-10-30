@@ -5,6 +5,8 @@ import (
     "fmt"
     "log"
     "net"
+    "os"
+    "bufio"
 
     "go.uber.org/zap"
     "gopkg.in/natefinch/lumberjack.v2"
@@ -15,6 +17,7 @@ import (
 )
 
 var logger *zap.Logger
+var userMap map[string]bool
 
 // server is used to implement AskLLMQuestionServer
 type server struct {
@@ -39,7 +42,24 @@ func initLogger() *zap.Logger {
 }
 
 func verify_user(api_key string) bool {
-    return true
+    var verified_user bool = userMap[api_key]
+
+    if verified_user {
+        return verified_user
+    } else {
+        // check postgres table
+        var cur_uuid_validity bool = false
+
+        // if true, add user to table
+        if cur_uuid_validity {
+            userMap[api_key] = cur_uuid_validity
+            // sync to existing file
+            writeUUIDMap(userMap)
+        }
+    }
+
+    return verified_user
+
 }
 
 func savePromptAnswer(prompt string, api_key string, answer string) {
@@ -72,10 +92,63 @@ func (s *server) PromptLLM(ctx context.Context, request *pb.LLMInit) (*pb.LLMInf
     }
 }
 
+func initUUIDMap() map[string]bool {
+    file, err := os.Open("user-uuid.txt")
+    if err != nil {
+        log.Fatalf("failed to open file: %v", err)
+    }
+    defer file.Close()
+
+    var uuidMap map[string]bool = make(map[string]bool)
+    scanner := bufio.NewScanner(file)
+    for scanner.Scan() {
+        uuid := scanner.Text()
+        uuidMap[uuid] = true // Store UUID in the map
+    }
+
+    // Check for errors encountered during scanning
+    if err := scanner.Err(); err != nil {
+        log.Fatalf("error reading file: %v", err)
+    }
+
+    // Now uuidMap contains all UUIDs from the file
+    fmt.Println("Loaded UUIDs:", uuidMap)
+
+    return uuidMap
+}
+
+func writeUUIDMap(uuidMap map[string]bool) error {
+    file, err := os.Create("user-uuid.txt")
+    if err != nil {
+        return fmt.Errorf("failed to create file: %w", err)
+    }
+    defer file.Close()
+
+    // Initialize a writer to write each UUID to the file
+    writer := bufio.NewWriter(file)
+    for uuid := range uuidMap {
+        _, err := writer.WriteString(uuid + "\n")
+        if err != nil {
+            return fmt.Errorf("failed to write UUID to file: %w", err)
+        }
+    }
+
+    // Ensure all data is flushed to the file
+    if err := writer.Flush(); err != nil {
+        return fmt.Errorf("failed to flush data to file: %w", err)
+    }
+
+    fmt.Println("Closing UUID user map")
+    return nil
+}
+
 func main() {
     // configure zap logger
     logger = initLogger()
     defer logger.Sync()
+
+    // initialize user map
+    userMap = initUUIDMap()
 
     // Set up a listener on port 50051
     lis, err := net.Listen("tcp", ":50051")
