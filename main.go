@@ -13,10 +13,14 @@ import (
     "go.uber.org/zap/zapcore"
 
     "google.golang.org/grpc"
-    pb "github.com/thansen0/localllmapiserver/protos"
+    pb "github.com/thansen0/fast-llm-api/protos"
+
+	"github.com/spf13/viper"
+    c "github.com/thansen0/fast-llm-api/config"
 )
 
 var logger *zap.Logger
+var conf c.Configurations
 var userMap map[string]bool
 
 // server is used to implement AskLLMQuestionServer
@@ -30,7 +34,7 @@ func initLogger() *zap.Logger {
         MaxSize:    10, // Megabytes before rotating
         MaxBackups: 3,  // Number of old files to retain
         MaxAge:     28, // Days to retain old log files
-        Compress:   true, // Compress rotated files
+        Compress:   false, // Compress rotated files
     })
 
     encoderConfig := zap.NewProductionEncoderConfig()
@@ -93,7 +97,9 @@ func (s *server) PromptLLM(ctx context.Context, request *pb.LLMInit) (*pb.LLMInf
 }
 
 func initUUIDMap() map[string]bool {
-    file, err := os.Open("user-uuid.txt")
+    fmt.Println("File: "+conf.Verify.UuidFile)
+    fmt.Println(conf.Server.Port)
+    file, err := os.Open(conf.Verify.UuidFile)
     if err != nil {
         log.Fatalf("failed to open file: %v", err)
     }
@@ -112,13 +118,13 @@ func initUUIDMap() map[string]bool {
     }
 
     // Now uuidMap contains all UUIDs from the file
-    fmt.Println("Loaded UUIDs:", uuidMap)
+    // fmt.Println("Loaded UUIDs:", uuidMap)
 
     return uuidMap
 }
 
 func writeUUIDMap(uuidMap map[string]bool) error {
-    file, err := os.Create("user-uuid.txt")
+    file, err := os.Create(conf.Verify.UuidFile)
     if err != nil {
         return fmt.Errorf("failed to create file: %w", err)
     }
@@ -143,6 +149,28 @@ func writeUUIDMap(uuidMap map[string]bool) error {
 }
 
 func main() {
+    // load config file with viper
+	viper.SetConfigName("config")
+	viper.AddConfigPath("config/")
+	// viper.AutomaticEnv()
+	viper.SetConfigType("yml")
+
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Printf("Error reading config file, %s\n", err)
+	}
+
+    // Set undefined variables
+	// viper.SetDefault("database.dbname", "test_db")
+
+	err := viper.Unmarshal(&conf)
+	if err != nil {
+		fmt.Printf("Unable to decode into struct, %v\n", err)
+	}
+
+/*    fmt.Printf("Server Port: %d\n", conf.Server.Port)
+    fmt.Printf("Verification UUID File: %s\n", conf.Verify.UuidFile)
+    fmt.Printf("Verification URL: %s\n", conf.Verify.VerifyUrl) */
+
     // configure zap logger
     logger = initLogger()
     defer logger.Sync()
@@ -151,7 +179,7 @@ func main() {
     userMap = initUUIDMap()
 
     // Set up a listener on port 50051
-    lis, err := net.Listen("tcp", ":50051")
+    lis, err := net.Listen("tcp", fmt.Sprintf(":%d", conf.Server.Port))
     if err != nil {
         log.Fatalf("failed to listen: %v", err)
     }
@@ -162,7 +190,7 @@ func main() {
     // Register the service with the server
     pb.RegisterAskLLMQuestionServer(grpcServer, &server{})
 
-    log.Println("gRPC server is running on port 50051")
+    log.Println(fmt.Sprintf("gRPC server is running on port %d", conf.Server.Port))
     if err := grpcServer.Serve(lis); err != nil {
         log.Fatalf("failed to serve: %v", err)
     }
